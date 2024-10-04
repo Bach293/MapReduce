@@ -1,36 +1,35 @@
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Reducer;
 
 public class KReducer extends Reducer<LongWritable, PointWritable, Text, Text> {
 
-    private final List<PointWritable> pointsInCluster = new ArrayList<>();
+    private final Text newCentroidValue = new Text();
 
-    public void reduce(LongWritable centroidId, Iterable<PointWritable> partialSums, Context context)
+    @Override
+    public void reduce(LongWritable centroidId, Iterable<PointWritable> points, Context context)
             throws IOException, InterruptedException {
 
-        pointsInCluster.clear();
-        PointWritable ptFinalSum = PointWritable.copy(partialSums.iterator().next());
-        pointsInCluster.add(PointWritable.copy(ptFinalSum));  // Thêm điểm đầu tiên
-        int totalPoints = ptFinalSum.getNumPoints();
+        PointWritable ptFinalSum = PointWritable.copy(points.iterator().next());
+        StringBuilder pointList = new StringBuilder();  // StringBuilder để lưu danh sách các điểm
+        int pointCount = 1;
+        pointList.append(ptFinalSum.toString());
 
-        while (partialSums.iterator().hasNext()) {
-            PointWritable nextPoint = partialSums.iterator().next();
-            ptFinalSum.sum(nextPoint);  // Cộng các điểm
-            pointsInCluster.add(PointWritable.copy(nextPoint));  // Thêm các điểm còn lại
-            totalPoints += nextPoint.getNumPoints();
+        while (points.iterator().hasNext()) {
+            PointWritable p = points.iterator().next();
+            ptFinalSum.sum(p);
+            pointList.append(" | ").append(p.toString());  // Thêm điểm vào danh sách
+            pointCount++;
         }
 
         ptFinalSum.calcAverage();
 
-        // Ghi centroid và danh sách các điểm
-        context.write(new Text("Centroid[" + centroidId.toString() + "]"), new Text(ptFinalSum.toString()));
-        context.write(new Text("Cluster Size: "), new Text(String.valueOf(totalPoints)));
-        for (PointWritable point : pointsInCluster) {
-            context.write(new Text("Point: "), new Text(point.toString()));
-        }
+        // In ra centroid, số lượng điểm, và danh sách các điểm thuộc cụm đó
+        String result = "Centroid: " + ptFinalSum.toString() + " | Points: " + pointCount + " | List: " + pointList.toString();
+        newCentroidValue.set(result);
+        
+        // Ghi kết quả ra tệp
+        context.write(new Text("Cluster " + centroidId.toString()), newCentroidValue);
     }
 }

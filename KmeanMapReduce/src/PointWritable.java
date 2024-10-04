@@ -9,8 +9,7 @@ public class PointWritable implements Writable {
     private float[] attributes = null;  // Mảng thuộc tính của điểm.
     private int dim;  // Số chiều (thuộc tính) của điểm.
     private int nPoints;  // Số lượng điểm được cộng dồn.
-    private int numPoints = 1; // Số lượng điểm trong cụm
-    
+
     public PointWritable() {
         this.dim = 0;
     }
@@ -39,19 +38,19 @@ public class PointWritable implements Writable {
         this.attributes = new float[s.length];
         this.dim = s.length;
         this.nPoints = 1;
+        
         for (int i = 0; i < s.length; i++) {
-            this.attributes[i] = Float.parseFloat(s[i]);
+            String value = s[i];
+            
+            // Kiểm tra và loại bỏ "Centroid: " khỏi chuỗi
+            if (value.contains("Centroid:")) {
+                value = value.replace("Centroid:", "").trim();
+            }
+
+            this.attributes[i] = Float.parseFloat(value);  // Chuyển đổi chuỗi thành số
         }
     }
 
-    public void setNumPoints(int numPoints) {
-        this.numPoints = numPoints;
-    }
-
-    public int getNumPoints() {
-        return numPoints;
-    }
-    
     @Override
     public void readFields(final DataInput in) throws IOException {
         this.dim = in.readInt();

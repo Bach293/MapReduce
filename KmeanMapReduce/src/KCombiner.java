@@ -7,20 +7,15 @@ public class KCombiner extends Reducer<LongWritable, PointWritable, LongWritable
     public void reduce(LongWritable centroidId, Iterable<PointWritable> points, Context context)
             throws IOException, InterruptedException {
 
-        PointWritable ptSum = PointWritable.copy(points.iterator().next());
-        int count = 1; // Đếm số lượng point trong cluster
+        PointWritable ptSum = PointWritable.copy(points.iterator().next());  // Sao chép điểm đầu tiên.
+        
         while (points.iterator().hasNext()) {
-            ptSum.sum(points.iterator().next());
-            count++;
+            ptSum.sum(points.iterator().next());  // Cộng dồn các điểm dữ liệu lại.
         }
 
-        // Cập nhật lại số lượng point trong cluster
-        ptSum.setNumPoints(count);
-
-        context.write(centroidId, ptSum);
+        context.write(centroidId, ptSum);  // Ghi kết quả tổng hợp vào kết quả Combiner.
     }
 }
-
 
 /*
  * reduce(): Kết hợp các điểm dữ liệu từ Mapper cho từng cụm (ID của tâm cụm là khóa). 

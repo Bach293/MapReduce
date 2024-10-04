@@ -1,6 +1,6 @@
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-//import java.io.FileNotFoundException;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -76,33 +76,34 @@ public class Main extends Configured implements Tool {
 	}
 
 	// Đọc tâm cụm từ đầu ra của Reducer
-	public static PointWritable[] readCentroidsFromReducerOutput(Configuration conf, int kClusters, String folderOutputPath) throws IOException {
+	public static PointWritable[] readCentroidsFromReducerOutput(Configuration conf, int kClusters,
+	        String folderOutputPath) throws IOException, FileNotFoundException {
 	    PointWritable[] points = new PointWritable[kClusters];
 	    FileSystem hdfs = FileSystem.get(conf);
 	    FileStatus[] status = hdfs.listStatus(new Path(folderOutputPath));
 
 	    for (int i = 0; i < status.length; i++) {
+
 	        if (!status[i].getPath().toString().endsWith("_SUCCESS")) {
 	            Path outFilePath = status[i].getPath();
 	            System.out.println("read " + outFilePath.toString());
 	            BufferedReader br = new BufferedReader(new InputStreamReader(hdfs.open(outFilePath)));
-	            String line;
-
+	            String line = null;
 	            while ((line = br.readLine()) != null) {
 	                System.out.println(line);
 
-	                // Bỏ qua các dòng không chứa dữ liệu centroid
-	                if (line.startsWith("Centroid[") || line.startsWith("Cluster Size:") || line.startsWith("Point:")) {
-	                    continue;
-	                }
-
-	                // Xử lý các dòng chứa thông tin centroid
 	                String[] strCentroidInfo = line.split("\t");
-	                if (strCentroidInfo.length == 2) {
-	                    int centroidId = Integer.parseInt(strCentroidInfo[0].trim());
-	                    String[] attrPoint = strCentroidInfo[1].split(",");
-	                    points[centroidId] = new PointWritable(attrPoint);
-	                }
+
+	                // Bỏ qua phần "Cluster " và chỉ lấy số
+	                String centroidString = strCentroidInfo[0].replace("Cluster ", "").trim();
+	                int centroidId = Integer.parseInt(centroidString);
+
+	                // Tách riêng phần "Centroid: " và phần sau đó
+	                String[] centroidParts = strCentroidInfo[1].split("\\|");
+	                String[] attrPoint = centroidParts[0].replace("Centroid:", "").trim().split(",");
+	                
+	                // Lưu giá trị centroid
+	                points[centroidId] = new PointWritable(attrPoint);
 	            }
 	            br.close();
 	        }
@@ -115,53 +116,38 @@ public class Main extends Configured implements Tool {
 
 	// Check điều kiện dừng
 	private static boolean checkStopKMean(PointWritable[] oldCentroids, PointWritable[] newCentroids, float threshold) {
-	    boolean needStop = true;
+		boolean needStop = true;
 
-	    System.out.println("Check for stop K-Means if distance <= " + threshold);
-	    for (int i = 0; i < oldCentroids.length; i++) {
+		System.out.println("Check for stop K-Means if distance <= " + threshold); // Kiểm tra sai số
+		for (int i = 0; i < oldCentroids.length; i++) {
 
-	        // Kiểm tra nếu centroid bị null
-	        if (oldCentroids[i] == null || newCentroids[i] == null) {
-	            System.out.println("Centroid[" + i + "] is null. Skipping comparison.");
-	            needStop = false;
-	            continue;
-	        }
-
-	        double dist = oldCentroids[i].calcDistance(newCentroids[i]);
-	        System.out.println("distance centroid[" + i + "] changed: " + dist + " (threshold:" + threshold + ")");
-	        if (dist > threshold) {
-	            needStop = false;
-	        }
-	    }
-	    return needStop;
+			double dist = oldCentroids[i].calcDistance(newCentroids[i]);
+			System.out.println("distance centroid[" + i + "] changed: " + dist + " (threshold:" + threshold + ")");
+			needStop = dist <= threshold;
+			// chỉ cần 1 tâm < ngưỡng thì return false
+			if (!needStop) {
+				return false;
+			}
+		}
+		return true;
 	}
-
 
 	// Ghi kết quả cuối cùng
 	private static void writeFinalResult(Configuration conf, PointWritable[] centroidsFound, String outputFilePath,
-            PointWritable[] centroidsInit, List<List<PointWritable>> clusterPoints) throws IOException {
+			PointWritable[] centroidsInit) throws IOException {
 		FileSystem hdfs = FileSystem.get(conf);
 		FSDataOutputStream dos = hdfs.create(new Path(outputFilePath), true);
 		BufferedWriter br = new BufferedWriter(new OutputStreamWriter(dos));
 
 		for (int i = 0; i < centroidsFound.length; i++) {
-			br.write("Centroid[" + i + "]:  (" + centroidsFound[i].toString() + ")  init: (" + centroidsInit[i].toString() + ")");
+			br.write(centroidsFound[i].toString());
 			br.newLine();
-			br.write("Cluster Size: " + clusterPoints.get(i).size());
-			br.newLine();
-			br.write("Points:");
-			br.newLine();
-			for (PointWritable point : clusterPoints.get(i)) {
-				br.write("Point: " + point.toString());
-				br.newLine();
-			}
-		br.newLine();
+			System.out.println("Centroid[" + i + "]:  (" + centroidsFound[i] + ")  init: (" + centroidsInit[i] + ")");
 		}
 
-	br.close();
-	hdfs.close();
+		br.close();
+		hdfs.close();
 	}
-
 
 	// 1 bản tâm cũ 
 	public static PointWritable[] copyCentroids(PointWritable[] points) {
@@ -223,10 +209,6 @@ public class Main extends Configured implements Tool {
 		// Vòng lặp Kmeans
 		int nLoop = 0;
 		PointWritable[] newCentroidPoints = null;
-		List<List<PointWritable>> clusterPoints = new ArrayList<>();
-		for (int i = 0; i < nClusters; i++) {
-		    clusterPoints.add(new ArrayList<>());
-		}
 		long t1 = (new Date()).getTime();
 		while (true) {
 			nLoop++;
@@ -259,12 +241,6 @@ public class Main extends Configured implements Tool {
 			}
 
 			newCentroidPoints = readCentroidsFromReducerOutput(conf, nClusters, outputFolderPath);
-			
-		    for (int i = 0; i < nClusters; i++) {
-		        clusterPoints.get(i).clear();  // Làm rỗng danh sách trước khi lưu mới
-		        // Thêm logic lưu point vào danh sách clusterPoints.get(i)
-		    }
-			
 			printCentroids(newCentroidPoints, "new");
 			boolean needStop = checkStopKMean(newCentroidPoints, oldCentroidPoints, thresholdStop);
 
@@ -279,7 +255,7 @@ public class Main extends Configured implements Tool {
 		}
 		if (newCentroidPoints != null) {
 			System.out.println("------------------- FINAL RESULT -------------------");
-			writeFinalResult(conf, newCentroidPoints, outputFolderPath + "/" + outputFileName, centroidsInit, clusterPoints);
+			writeFinalResult(conf, newCentroidPoints, outputFolderPath + "/" + outputFileName, centroidsInit);
 		}
 		System.out.println("----------------------------------------------");
 		System.out.println("K-MEANS CLUSTERING FINISHED!");
